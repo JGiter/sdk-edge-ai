@@ -10,17 +10,22 @@
 #include <zephyr/device.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/sensor.h>
+#include <zephyr/logging/log.h>
 
+LOG_MODULE_DECLARE(main);
 
-static struct
-{
+static struct {
 	bool initialized;
 	generic_cb_t data_ready_cb;
 	const struct device *dev;
 } imu_ctx = {
 	.initialized = false,
 	.data_ready_cb = NULL,
+#ifdef CONFIG_LSM6DSL
+	.dev = DEVICE_DT_GET_ONE(st_lsm6dsl),
+#else
 	.dev = DEVICE_DT_GET_ONE(bosch_bmi270),
+#endif
 };
 
 /**
@@ -38,8 +43,7 @@ static void data_read_timer_handler(struct k_timer *timer)
 
 K_TIMER_DEFINE(data_ready_timer, data_read_timer_handler, NULL);
 
-status_t imu_init(const imu_config_t *p_config,
-			  generic_cb_t data_ready_cb)
+status_t imu_init(const imu_config_t *p_config, generic_cb_t data_ready_cb)
 {
 	int res = 0;
 	struct sensor_value full_scale = {0};
@@ -53,43 +57,57 @@ status_t imu_init(const imu_config_t *p_config,
 	HW_RETURN_IF(imu_ctx.dev == NULL, STATUS_HARDWARE_ERROR);
 	HW_RETURN_IF(!device_is_ready(imu_ctx.dev), STATUS_HARDWARE_ERROR);
 
-	/* Setting scale in G, due to loss of precision if the SI unit m/s^2
-	 * is used
-	 */
-	full_scale.val1 = p_config->accel_fs_g;		/* G */
+/* Setting scale in G, due to loss of precision if the SI unit m/s^2
+ * is used
+ */
+#ifdef CONFIG_LSM6DSL
+	sensor_g_to_ms2(p_config->accel_fs_g, &full_scale);
+#else
+	full_scale.val1 = p_config->accel_fs_g; /* G */
 	full_scale.val2 = 0;
-	sampling_freq.val1 = p_config->data_rate_hz;	/* Hz. Performance mode */
+#endif
+	sampling_freq.val1 = p_config->data_rate_hz; /* Hz. Performance mode */
 	sampling_freq.val2 = 0;
-	oversampling.val1 = 1;				/* Normal mode */
+	oversampling.val1 = 1; /* Normal mode */
 	oversampling.val2 = 0;
 
-	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_ACCEL_XYZ,
-			      SENSOR_ATTR_FULL_SCALE, &full_scale);
+	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_ACCEL_XYZ, SENSOR_ATTR_FULL_SCALE,
+			      &full_scale);
 	HW_RETURN_IF(res != 0, STATUS_HARDWARE_ERROR);
 
-	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_ACCEL_XYZ,
-			      SENSOR_ATTR_OVERSAMPLING, &oversampling);
+#ifndef CONFIG_LSM6DSL
+	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_ACCEL_XYZ, SENSOR_ATTR_OVERSAMPLING,
+			      &oversampling);
+	LOG_DBG("Accel set oversampling result: %d", res);
+	HW_RETURN_IF(res != 0, STATUS_HARDWARE_ERROR);
+#endif
+
+	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_ACCEL_XYZ, SENSOR_ATTR_SAMPLING_FREQUENCY,
+			      &sampling_freq);
 	HW_RETURN_IF(res != 0, STATUS_HARDWARE_ERROR);
 
-	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_ACCEL_XYZ,
-			      SENSOR_ATTR_SAMPLING_FREQUENCY, &sampling_freq);
-	HW_RETURN_IF(res != 0, STATUS_HARDWARE_ERROR);
-
-	/* Setting scale in degrees/s to match the sensor scale */
-	full_scale.val1 = p_config->gyro_fs_dps;	/* dps */
+/* Setting scale in degrees/s to match the sensor scale */
+#ifdef CONFIG_LSM6DSL
+	sensor_degrees_to_rad(p_config->gyro_fs_dps, &full_scale);
+#else
+	full_scale.val1 = p_config->gyro_fs_dps; /* dps */
 	full_scale.val2 = 0;
-	sampling_freq.val1 = p_config->data_rate_hz;	/* Hz. Performance mode */
+#endif
+	sampling_freq.val1 = p_config->data_rate_hz; /* Hz. Performance mode */
 	sampling_freq.val2 = 0;
-	oversampling.val1 = 1;				/* Normal mode */
+	oversampling.val1 = 1; /* Normal mode */
 	oversampling.val2 = 0;
 
-	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_GYRO_XYZ,
-			      SENSOR_ATTR_FULL_SCALE, &full_scale);
+	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_GYRO_XYZ, SENSOR_ATTR_FULL_SCALE,
+			      &full_scale);
 	HW_RETURN_IF(res != 0, STATUS_HARDWARE_ERROR);
 
-	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_GYRO_XYZ,
-			      SENSOR_ATTR_OVERSAMPLING, &oversampling);
+#ifndef CONFIG_LSM6DSL
+	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_GYRO_XYZ, SENSOR_ATTR_OVERSAMPLING,
+			      &oversampling);
+	LOG_DBG("Gyro set oversampling result: %d", res);
 	HW_RETURN_IF(res != 0, STATUS_HARDWARE_ERROR);
+#endif
 
 	imu_ctx.data_ready_cb = data_ready_cb;
 	data_ready_timer_period = MAX(1U, (uint32_t)(1000U / p_config->data_rate_hz));
@@ -100,8 +118,8 @@ status_t imu_init(const imu_config_t *p_config,
 	 * power mode. If already sampling, change sampling frequency to
 	 * 0.0Hz before changing other attributes
 	 */
-	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_GYRO_XYZ,
-			      SENSOR_ATTR_SAMPLING_FREQUENCY, &sampling_freq);
+	res = sensor_attr_set(imu_ctx.dev, SENSOR_CHAN_GYRO_XYZ, SENSOR_ATTR_SAMPLING_FREQUENCY,
+			      &sampling_freq);
 	HW_RETURN_IF(res != 0, STATUS_HARDWARE_ERROR);
 
 	return STATUS_SUCCESS;

@@ -52,7 +52,7 @@
 
 #define LED_MAX_BRIGHTNESS (0.2f)
 
-LOG_MODULE_REGISTER(main);
+LOG_MODULE_REGISTER(main, LOG_LEVEL_DBG);
 
 typedef int (*led_set_func_t)(float brightness);
 
@@ -102,11 +102,13 @@ int main(void)
 {
 	hw_modules_init();
 
-	int err = button_init();
+	if (IS_ENABLED(CONFIG_BUTTONS)) {
+		int err = button_init();
 
-	if (err != 0) {
-		LOG_ERR("Failed to initialize button module (err %d)", err);
-		return err;
+		if (err != 0) {
+			LOG_ERR("Failed to initialize button module (err %d)", err);
+			return err;
+		}
 	}
 
 #if IS_ENABLED(CONFIG_BLE_MODE_HID)
@@ -309,7 +311,12 @@ static void hw_modules_init(void)
 
 	imu_config_t imu_config = {.accel_fs_g = IMU_ACCEL_SCALE_4G,
 				   .gyro_fs_dps = IMU_GYRO_SCALE_1000DPS,
-				   .data_rate_hz = 100};
+#ifdef CONFIG_LSM6DSL
+				   .data_rate_hz = 104
+#else
+				   .data_rate_hz = 100
+#endif
+	};
 
 	status_t status = imu_init(&imu_config, imu_data_ready_cb);
 
@@ -347,25 +354,27 @@ static void hw_modules_init(void)
 static void send_bt_keyboard_key(const class_label_t class_label)
 {
 	static const ble_hid_key_t LABEL_VS_KEY_BY_MODE[2][8] = {
-		[UX_REMOTECTRL_MODE_PRESENTATION] = {
+		[UX_REMOTECTRL_MODE_PRESENTATION] =
+			{
 				[CLASS_LABEL_IDLE] = BLE_HID_KEYS_count,
 				[CLASS_LABEL_UNKNOWN] = BLE_HID_KEYS_count,
 				[CLASS_LABEL_SWIPE_RIGHT] = BLE_HID_KEY_ARROW_RIGHT,
 				[CLASS_LABEL_SWIPE_LEFT] = BLE_HID_KEY_ARROW_LEFT,
 				[CLASS_LABEL_DOUBLE_SHAKE] = BLE_HID_KEY_F5,
 				[CLASS_LABEL_DOUBLE_THUMB] = BLE_HID_KEY_ESC,
-				[CLASS_LABEL_ROTATION_RIGHT] = BLE_HID_KEYS_count,
-				[CLASS_LABEL_ROTATION_LEFT] = BLE_HID_KEYS_count,
+				[CLASS_LABEL_ROTATION_CW] = BLE_HID_KEYS_count,
+				[CLASS_LABEL_ROTATION_CCW] = BLE_HID_KEYS_count,
 			},
-		[UX_REMOTECTRL_MODE_MUSIC] = {
+		[UX_REMOTECTRL_MODE_MUSIC] =
+			{
 				[CLASS_LABEL_IDLE] = BLE_HID_KEYS_count,
 				[CLASS_LABEL_UNKNOWN] = BLE_HID_KEYS_count,
 				[CLASS_LABEL_SWIPE_RIGHT] = BLE_HID_KEY_MEDIA_NEXT_TRACK,
 				[CLASS_LABEL_SWIPE_LEFT] = BLE_HID_KEY_MEDIA_PREV_TRACK,
 				[CLASS_LABEL_DOUBLE_SHAKE] = BLE_HID_KEY_MEDIA_PLAY_PAUSE,
 				[CLASS_LABEL_DOUBLE_THUMB] = BLE_HID_KEY_MEDIA_MUTE,
-				[CLASS_LABEL_ROTATION_RIGHT] = BLE_HID_KEY_MEDIA_VOLUME_UP,
-				[CLASS_LABEL_ROTATION_LEFT] = BLE_HID_KEY_MEDIA_VOLUME_DOWN,
+				[CLASS_LABEL_ROTATION_CW] = BLE_HID_KEY_MEDIA_VOLUME_UP,
+				[CLASS_LABEL_ROTATION_CCW] = BLE_HID_KEY_MEDIA_VOLUME_DOWN,
 			},
 	};
 
@@ -438,8 +447,7 @@ static bool should_act_on_prediction(const class_label_t class_label)
 
 	current_time_ms = k_uptime_get();
 
-	if ((class_label == CLASS_LABEL_ROTATION_RIGHT) ||
-	    (class_label == CLASS_LABEL_ROTATION_LEFT) ||
+	if ((class_label == CLASS_LABEL_ROTATION_CW) || (class_label == CLASS_LABEL_ROTATION_CCW) ||
 	    (current_time_ms - last_prediction_time_ms) > PREDICTION_TIMEOUT_MS) {
 		last_prediction_time_ms = current_time_ms;
 		return true;

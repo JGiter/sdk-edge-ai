@@ -37,6 +37,30 @@ static void nus_send_enabled_cb(enum bt_nus_send_status status)
 	nus_send_enabled = (status == BT_NUS_SEND_STATUS_ENABLED);
 }
 
+static void mtu_exchange_cb(struct bt_conn *conn, uint8_t err,
+			    struct bt_gatt_exchange_params *params)
+{
+	printk("%s: MTU exchange %s (%u)\n", __func__, err == 0U ? "successful" : "failed",
+	       bt_gatt_get_mtu(conn));
+}
+
+static struct bt_gatt_exchange_params mtu_exchange_params = {.func = mtu_exchange_cb};
+
+static int mtu_exchange(struct bt_conn *conn)
+{
+	int err;
+
+	printk("%s: Current MTU = %u\n", __func__, bt_gatt_get_mtu(conn));
+
+	printk("%s: Exchange MTU...\n", __func__);
+	err = bt_gatt_exchange_mtu(conn, &mtu_exchange_params);
+	if (err) {
+		printk("%s: MTU exchange failed (err %d)", __func__, err);
+	}
+
+	return err;
+}
+
 static void nus_connected(struct bt_conn *conn, uint8_t err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -54,6 +78,8 @@ static void nus_connected(struct bt_conn *conn, uint8_t err)
 
 	ble_common_set_connected(true);
 	LOG_INF("NUS connected %s", addr);
+
+	mtu_exchange(nus_conn);
 }
 
 static void nus_disconnected(struct bt_conn *conn, uint8_t reason)
@@ -73,8 +99,8 @@ static void nus_disconnected(struct bt_conn *conn, uint8_t reason)
 
 	ble_common_set_connected(false);
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, nus_ad, ARRAY_SIZE(nus_ad),
-			     nus_sd, ARRAY_SIZE(nus_sd));
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, nus_ad, ARRAY_SIZE(nus_ad), nus_sd,
+			      ARRAY_SIZE(nus_sd));
 	if (err) {
 		LOG_ERR("NUS Advertising failed to start (err %d)", err);
 	}
@@ -113,8 +139,8 @@ int ble_nus_init(void)
 
 	bt_conn_cb_register(&nus_conn_callbacks);
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, nus_ad, ARRAY_SIZE(nus_ad),
-			     nus_sd, ARRAY_SIZE(nus_sd));
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, nus_ad, ARRAY_SIZE(nus_ad), nus_sd,
+			      ARRAY_SIZE(nus_sd));
 	if (err) {
 		LOG_ERR("NUS advertising failed to start (err %d)", err);
 		return err;
@@ -141,7 +167,7 @@ int ble_nus_send(const int16_t *input_data)
 	static uint32_t id;
 
 	id++;
-	len = snprintf(buffer, sizeof(buffer), "%u %d,%d,%d,%d,%d,%d\r\n", id, input_data[0],
+	len = snprintf(buffer, sizeof(buffer), "%d,%d,%d,%d,%d,%d\r\n", input_data[0],
 		       input_data[1], input_data[2], input_data[3], input_data[4], input_data[5]);
 	if ((len <= 0) || (len >= (int)sizeof(buffer))) {
 		return -EINVAL;
@@ -149,8 +175,14 @@ int ble_nus_send(const int16_t *input_data)
 
 	mtu = bt_nus_get_mtu(nus_conn);
 	if ((uint32_t)len > mtu) {
+		LOG_WRN_RATELIMIT_RATE(
+			5000, "MTU is lesser than message len: mtu = %d, msg len = %d", mtu, len);
 		return -EMSGSIZE;
 	}
 
-	return bt_nus_send(nus_conn, (const uint8_t *)buffer, (uint16_t)len);
+	int res = bt_nus_send(nus_conn, (const uint8_t *)buffer, (uint16_t)len);
+	if (res) {
+		LOG_WRN_RATELIMIT_RATE(5000, "Failed to send: %d\n", res);
+	};
+	return res;
 }

@@ -114,4 +114,10 @@ choice BT_HIDS_DEFAULT_PERM
 	default BT_HIDS_DEFAULT_PERM_RW_ENCRYPT if BLE_MODE_HID
 endchoice
 
+config BUTTONS
+	bool "Board has button to switch remote control mode"
+	default y
+	help
+	  If false the mode will be APP_REMOTECTRL_MODE_PRESENTATION
+
 source "Kconfig.zephyr"
