@@ -10,8 +10,7 @@
 #include <string.h>
 #include <zephyr/sys/util.h>
 
-#define PREVIOUS_PREDICTION_NUM                 (3)
-
+#define PREVIOUS_PREDICTION_NUM (3)
 
 typedef struct prediction_tracer_s {
 	/** Current prediction index */
@@ -38,16 +37,15 @@ typedef struct class_prediction_condition_s {
 
 static const char *get_name_by_target(uint8_t predicted_target)
 {
-	static const char * const LABEL_VS_NAME[] = {
-		[CLASS_LABEL_IDLE]           = "IDLE",
-		[CLASS_LABEL_UNKNOWN]        = "UNKNOWN",
-		[CLASS_LABEL_SWIPE_LEFT]     = "SWIPE LEFT",
-		[CLASS_LABEL_SWIPE_RIGHT]    = "SWIPE RIGHT",
-		[CLASS_LABEL_DOUBLE_SHAKE]   = "DOUBLE SHAKE",
-		[CLASS_LABEL_DOUBLE_THUMB]   = "DOUBLE THUMB",
-		[CLASS_LABEL_ROTATION_RIGHT] = "ROTATION RIGHT",
-		[CLASS_LABEL_ROTATION_LEFT]  = "ROTATION LEFT"
-	};
+	static const char *const LABEL_VS_NAME[] = {
+		[CLASS_LABEL_IDLE] = "IDLE",
+		[CLASS_LABEL_UNKNOWN] = "UNKNOWN",
+		[CLASS_LABEL_SWIPE_LEFT] = "SWIPE LEFT",
+		[CLASS_LABEL_SWIPE_RIGHT] = "SWIPE RIGHT",
+		[CLASS_LABEL_DOUBLE_SHAKE] = "DOUBLE SHAKE",
+		[CLASS_LABEL_DOUBLE_THUMB] = "DOUBLE THUMB",
+		[CLASS_LABEL_ROTATION_CW] = "ROTATION CLOCKWISE",
+		[CLASS_LABEL_ROTATION_CCW] = "ROTATION COUNTER CLOCKWISE"};
 
 	static const uint8_t LABELS_CNT = ARRAY_SIZE(LABEL_VS_NAME);
 
@@ -59,14 +57,10 @@ static const char *get_name_by_target(uint8_t predicted_target)
 static const class_prediction_condition_t *get_class_condition(uint8_t predicted_target)
 {
 	static const class_prediction_condition_t LABEL_VS_CONFIG[] = {
-		[CLASS_LABEL_IDLE]           = {0, 0.0},
-		[CLASS_LABEL_UNKNOWN]        = {0, 0.0},
-		[CLASS_LABEL_SWIPE_LEFT]     = {2, 0.8},
-		[CLASS_LABEL_SWIPE_RIGHT]    = {2, 0.8},
-		[CLASS_LABEL_DOUBLE_SHAKE]   = {2, 0.7},
-		[CLASS_LABEL_DOUBLE_THUMB]   = {3, 0.7},
-		[CLASS_LABEL_ROTATION_RIGHT] = {2, 0.7},
-		[CLASS_LABEL_ROTATION_LEFT]  = {2, 0.7},
+		[CLASS_LABEL_IDLE] = {0, 0.0},	       [CLASS_LABEL_UNKNOWN] = {0, 0.0},
+		[CLASS_LABEL_SWIPE_LEFT] = {2, 0.8},   [CLASS_LABEL_SWIPE_RIGHT] = {2, 0.8},
+		[CLASS_LABEL_DOUBLE_SHAKE] = {2, 0.7}, [CLASS_LABEL_DOUBLE_THUMB] = {3, 0.7},
+		[CLASS_LABEL_ROTATION_CW] = {2, 0.7},  [CLASS_LABEL_ROTATION_CCW] = {2, 0.7},
 	};
 
 	static const uint8_t LABELS_CNT = ARRAY_SIZE(LABEL_VS_CONFIG);
@@ -120,14 +114,12 @@ static float average_probability(const prediction_tracer_t *tracer)
 
 static bool is_repetitive_class(uint16_t target)
 {
-	return (target == CLASS_LABEL_ROTATION_RIGHT) ||
-	       (target == CLASS_LABEL_ROTATION_LEFT);
+	return (target == CLASS_LABEL_ROTATION_CW) || (target == CLASS_LABEL_ROTATION_CCW);
 }
 
 static bool apply_conditions(const class_prediction_condition_t *condition,
-			      const prediction_tracer_t *tracer,
-			      uint16_t *target,
-			      float *probability)
+			     const prediction_tracer_t *tracer, uint16_t *target,
+			     float *probability)
 {
 	__ASSERT_NO_MSG(condition != NULL);
 	__ASSERT_NO_MSG(tracer != NULL);
@@ -168,8 +160,7 @@ prediction_ctx_t inference_postprocess(uint16_t target, float probability)
 		reset_tracer_if_target_changed(&tracer, target);
 		record_prediction(&tracer, probability);
 
-		const class_prediction_condition_t *class_condition =
-			get_class_condition(target);
+		const class_prediction_condition_t *class_condition = get_class_condition(target);
 		if (class_condition == NULL) {
 			return result;
 		}
